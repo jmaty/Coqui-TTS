@@ -292,6 +292,8 @@ class VitsuDataset(TTSDataset):
 ##############################
 
 # JMa 2021/12/22:
+# VITS model with UnivNet vocoder (instead of HiFiGAN).
+# Cloned from VITS 0.6.2.
 # There seems to be 2 options how to make VITS compatible with the Univnet vocoder, because
 # the number of hidden channel in VITS (originally 192) must equal the number of channels
 # of the conditioning tensors in Univnet (originally 80)
@@ -514,13 +516,13 @@ class VitsuArgs(Coqpit):
     freeze_flow_decoder: bool = False
     freeze_waveform_decoder: bool = False
 
-    # JMa: Original decoder network params (HifiGAN vocoder)
-    resblock_type_decoder: str = "1"
-    resblock_kernel_sizes_decoder: List[int] = field(default_factory=lambda: [3, 7, 11])
-    resblock_dilation_sizes_decoder: List[List[int]] = field(default_factory=lambda: [[1, 3, 5], [1, 3, 5], [1, 3, 5]])
-    upsample_rates_decoder: List[int] = field(default_factory=lambda: [8, 8, 2, 2])
-    upsample_initial_channel_decoder: int = 512
-    upsample_kernel_sizes_decoder: List[int] = field(default_factory=lambda: [16, 16, 4, 4])
+    # # JMa: Original decoder network params (HifiGAN vocoder)
+    # resblock_type_decoder: str = "1"
+    # resblock_kernel_sizes_decoder: List[int] = field(default_factory=lambda: [3, 7, 11])
+    # resblock_dilation_sizes_decoder: List[List[int]] = field(default_factory=lambda: [[1, 3, 5], [1, 3, 5], [1, 3, 5]])
+    # upsample_rates_decoder: List[int] = field(default_factory=lambda: [8, 8, 2, 2])
+    # upsample_initial_channel_decoder: int = 512
+    # upsample_kernel_sizes_decoder: List[int] = field(default_factory=lambda: [16, 16, 4, 4])
     # JMa: Decoder network params (Univnet vocoder)
     hidden_channels_decoder: int = 32
     cond_channels_decoder: int = 80
@@ -1157,6 +1159,7 @@ class Vitsu(BaseTTS):
                 mel_slice = segment(
                     mel.float(), self.model_outputs_cache["slice_ids"], self.spec_segment_size, pad_short=True
                 )
+                # print(f"D: sample_rate = {self.config.audio.sample_rate}")
                 mel_slice_hat = wav_to_mel(
                     y=self.model_outputs_cache["model_outputs"].float(),
                     n_fft=self.config.audio.fft_size,
