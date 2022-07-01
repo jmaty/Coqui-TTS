@@ -1514,20 +1514,21 @@ class Vitsu(BaseTTS):
             assert not self.training
 
     @staticmethod
-    def init_from_config(config: "VitsConfig", samples: Union[List[List], List[Dict]] = None, verbose=True):
+    def init_from_config(config: "VitsuConfig", samples: Union[List[List], List[Dict]] = None, verbose=True):
         """Initiate model from config
 
         Args:
-            config (VitsConfig): Model config.
+            config (VitsuConfig): Model config.
             samples (Union[List[List], List[Dict]]): Training samples to parse speaker ids for training.
                 Defaults to None.
         """
         from TTS.utils.audio import AudioProcessor
 
-        upsample_rate = torch.prod(torch.as_tensor(config.model_args.upsample_rates_decoder)).item()
-        assert (
-            upsample_rate == config.audio.hop_length
-        ), f" [!] Product of upsample rates must be equal to the hop length - {upsample_rate} vs {config.audio.hop_length}"
+        # JMa: not used for Univnet
+        # upsample_rate = torch.prod(torch.as_tensor(config.model_args.upsample_rates_decoder)).item()
+        # assert (
+        #     upsample_rate == config.audio.hop_length
+        # ), f" [!] Product of upsample rates must be equal to the hop length - {upsample_rate} vs {config.audio.hop_length}"
 
         ap = AudioProcessor.init_from_config(config, verbose=verbose)
         tokenizer, new_config = TTSTokenizer.init_from_config(config)
@@ -1538,7 +1539,7 @@ class Vitsu(BaseTTS):
             speaker_manager.init_encoder(
                 config.model_args.speaker_encoder_model_path, config.model_args.speaker_encoder_config_path
             )
-        return Vits(new_config, ap, tokenizer, speaker_manager, language_manager)
+        return Vitsu(new_config, ap, tokenizer, speaker_manager, language_manager)
 
 
 ##################################
