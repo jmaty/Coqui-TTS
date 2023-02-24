@@ -535,6 +535,9 @@ class VitsArgs(Coqpit):
             will be used to upsampling the latent variable z with the sampling rate `encoder_sample_rate`
             to the `config.audio.sample_rate`. If it is False you will need to add extra
             `upsample_rates_decoder` to match the shape. Defaults to True.
+        
+        steps_to_freeze_DP (int):
+            Number of steps after which duration predictor weights are frozen. Defaults to None (not to be frozen).
 
     """
 
@@ -595,6 +598,7 @@ class VitsArgs(Coqpit):
     interpolate_z: bool = True
     reinit_DP: bool = False
     reinit_text_encoder: bool = False
+    steps_to_freeze_DP: int = None      # JMa
 
 
 class Vits(BaseTTS):
@@ -815,6 +819,11 @@ class Vits(BaseTTS):
         # set the device of speaker encoder
         if self.args.use_speaker_encoder_as_loss:
             self.speaker_manager.encoder = self.speaker_manager.encoder.to(self.device)
+        # JMa: freeze duration predictor after specified number of steps
+        if self.args.steps_to_freeze_DP is not None and trainer.total_steps_done > self.args.steps_to_freeze_DP:
+            for param in self.duration_predictor.parameters():
+                param.requires_grad = False
+            print(" > Duration predictor is frozen from step {total_steps_done}.")
 
     def on_init_end(self, trainer):  # pylint: disable=W0613
         """Reinit layes if needed"""
@@ -1439,7 +1448,8 @@ class Vits(BaseTTS):
         test_sentences = self.config.test_sentences
         for idx, s_info in enumerate(test_sentences):
             aux_inputs = self.get_aux_input_from_test_sentences(s_info)
-            wav, alignment, _, _ = synthesis(
+            # JMa: replace individual variables with dictionary
+            outputs = synthesis(
                 self,
                 aux_inputs["text"],
                 self.config,
@@ -1451,8 +1461,8 @@ class Vits(BaseTTS):
                 use_griffin_lim=True,
                 do_trim_silence=False,
             ).values()
-            test_audios["{}-audio".format(idx)] = wav
-            test_figures["{}-alignment".format(idx)] = plot_alignment(alignment.T, output_fig=False)
+            test_audios["{}-audio".format(idx)] = outputs["wav"]
+            test_figures["{}-alignment".format(idx)] = plot_alignment(outputs["alignments"].T, output_fig=False)
         return {"figures": test_figures, "audios": test_audios}
 
     def test_log(
