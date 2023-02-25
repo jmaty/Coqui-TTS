@@ -1460,7 +1460,7 @@ class Vits(BaseTTS):
                 language_id=aux_inputs["language_id"],
                 use_griffin_lim=True,
                 do_trim_silence=False,
-            ).values()
+            )
             test_audios["{}-audio".format(idx)] = outputs["wav"]
             test_figures["{}-alignment".format(idx)] = plot_alignment(outputs["alignments"].T, output_fig=False)
         return {"figures": test_figures, "audios": test_audios}
