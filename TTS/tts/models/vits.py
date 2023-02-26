@@ -816,14 +816,14 @@ class Vits(BaseTTS):
     def on_epoch_start(self, trainer):  # pylint: disable=W0613
         """Freeze layers at the beginning of an epoch"""
         self._freeze_layers()
-        # set the device of speaker encoder
-        if self.args.use_speaker_encoder_as_loss:
-            self.speaker_manager.encoder = self.speaker_manager.encoder.to(self.device)
         # JMa: freeze duration predictor after specified number of steps
         if self.args.steps_to_freeze_DP is not None and trainer.total_steps_done > self.args.steps_to_freeze_DP:
             for param in self.duration_predictor.parameters():
                 param.requires_grad = False
-            print(" > Duration predictor is frozen from step {total_steps_done}.")
+            print(f" > Duration predictor is frozen from step {trainer.total_steps_done}.")
+        # set the device of speaker encoder
+        if self.args.use_speaker_encoder_as_loss:
+            self.speaker_manager.encoder = self.speaker_manager.encoder.to(self.device)
 
     def on_init_end(self, trainer):  # pylint: disable=W0613
         """Reinit layes if needed"""
