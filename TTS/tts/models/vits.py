@@ -538,7 +538,12 @@ class VitsArgs(Coqpit):
         
         steps_to_freeze_DP (int):
             Number of steps after which duration predictor weights are frozen. Defaults to None (not to be frozen).
-
+        
+        steps_to_change_dur_loss_alpha (int):
+            Number of steps after which duration loss is changed. Defaults to None (not to be changed).
+        
+        changed_dur_loss_alpha (float):
+            Duration loss weight changed after `steps_to_change_dur_loss`. Defaults to (0.01).
     """
 
     num_chars: int = 100
@@ -598,7 +603,9 @@ class VitsArgs(Coqpit):
     interpolate_z: bool = True
     reinit_DP: bool = False
     reinit_text_encoder: bool = False
-    steps_to_freeze_DP: int = None      # JMa
+    steps_to_freeze_DP: int = None              # JMa
+    steps_to_change_dur_loss_alpha: int = None  # JMa
+    changed_dur_loss_alpha: float = 0.01        # JMa
 
 
 class Vits(BaseTTS):
@@ -816,11 +823,17 @@ class Vits(BaseTTS):
     def on_epoch_start(self, trainer):  # pylint: disable=W0613
         """Freeze layers at the beginning of an epoch"""
         self._freeze_layers()
+
         # JMa: freeze duration predictor after specified number of steps
         if self.args.steps_to_freeze_DP is not None and trainer.total_steps_done > self.args.steps_to_freeze_DP:
             for param in self.duration_predictor.parameters():
                 param.requires_grad = False
             print(f" > Duration predictor is frozen from step {trainer.total_steps_done}.")
+        # JMa: change duration loss weight after specified number of steps
+        if self.args.steps_to_change_dur_loss_alpha is not None and trainer.total_steps_done > self.args.steps_to_change_dur_loss_alpha:
+            self.config.dur_loss_alpha = self.args.changed_dur_loss_alpha
+            print(f" > Duration loss alpha changed at step {trainer.total_steps_done} to {self.args.changed_dur_loss_alpha}.")
+
         # set the device of speaker encoder
         if self.args.use_speaker_encoder_as_loss:
             self.speaker_manager.encoder = self.speaker_manager.encoder.to(self.device)
