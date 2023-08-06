@@ -808,6 +808,16 @@ class Vits(BaseTTS):
             self.audio_resampler = torchaudio.transforms.Resample(
                 orig_freq=self.config.audio["sample_rate"], new_freq=self.args.encoder_sample_rate
             )  # pylint: disable=W0201
+    
+    def _freeze_listed_layers(self, layers, freeze):
+        requires_grad = not freeze
+        for layer in layers:
+            print(f" > freezing status: {freeze}")
+            for param in layer.parameters():
+                param.requires_grad = requires_grad
+            if isinstance(layer, TextEncoder) and hasattr(self, "emb_l"):
+                for param in self.emb_l.parameters():
+                    param.requires_grad = requires_grad
 
     def on_epoch_start(self, trainer):  # pylint: disable=W0613
         """Freeze layers at the beginning of an epoch"""
@@ -815,6 +825,18 @@ class Vits(BaseTTS):
         # set the device of speaker encoder
         if self.args.use_speaker_encoder_as_loss:
             self.speaker_manager.encoder = self.speaker_manager.encoder.to(self.device)
+
+        # Freezing scheme
+        if trainer.total_steps_done < 100000:
+            self._freeze_listed_layers([self.text_encoder, self.posterior_encoder, self.flow, self.waveform_decoder], True)
+            self.config.kl_loss_alpha, self.config.disc_loss_alpha, self.config.gen_loss_alpha, self.config.feat_loss_alpha, self.config.mel_loss_alpha = 0, 0, 0, 0, 0
+        if trainer.total_steps_done >= 100000 and trainer.total_steps_done < 1000000:
+            self._freeze_listed_layers([self.text_encoder, self.posterior_encoder, self.flow, self.waveform_decoder], False)
+            self._freeze_listed_layers([self.duration_predictor], True)
+            self.config.kl_loss_alpha, self.config.disc_loss_alpha, self.config.gen_loss_alpha, self.config.feat_loss_alpha, self.config.mel_loss_alpha = 1, 1, 1, 1, 45
+        if trainer.total_steps_done >= 1000000:
+            self._freeze_listed_layers([self.text_encoder, self.posterior_encoder, self.flow, self.waveform_decoder], True)
+            self._freeze_listed_layers([self.duration_predictor], False)
 
     def on_init_end(self, trainer):  # pylint: disable=W0613
         """Reinit layes if needed"""
