@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from TTS.tts.layers.glow_tts.glow import WN
-from TTS.tts.layers.glow_tts.transformer import RelativePositionTransformer
+from TTS.tts.layers.s4vits.transformer_s4 import RelativePositionTransformerS4
 from TTS.tts.utils.helpers import sequence_mask
 
 LRELU_SLOPE = 0.1
@@ -62,7 +62,7 @@ class TextEncoder(nn.Module):
         if language_emb_dim:
             hidden_channels += language_emb_dim
 
-        self.encoder = RelativePositionTransformer(
+        self.encoder = RelativePositionTransformerS4(
             in_channels=hidden_channels,
             out_channels=hidden_channels,
             hidden_channels=hidden_channels,
