@@ -20,7 +20,7 @@ class S4Layer(nn.Module):
                 same as hidden_size of the model.
             d_state (or N): (from S4 docstring:) State size (dimensionality 
                 of parameters A, B, C). Generally shouldn't need to be 
-                adjusted and doens't affect speed much.
+                adjusted and doesn't affect speed much.
             dropout: (from S4 docstring:) standard dropout argument
             lr: (from S4 docstring:) Passing in a number (e.g. 0.001) sets 
                 attributes of SSM parameers (A, B, dt). A custom optimizer 
@@ -40,9 +40,9 @@ class S4Layer(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor, *args, **kwargs) -> tuple[torch.Tensor]:
-        print(f"hidden_states: {hidden_states.shape}")
+        # print(f"hidden_states: {hidden_states.shape}")
         output, _ = self.s4(hidden_states)
-        print(f"output: {output.shape}")
+        # print(f"output: {output.shape}")
         return output
 
 #class RelativePositionMultiHeadAttention(nn.Module):
