@@ -383,11 +383,39 @@ class VitsArgs(Coqpit):
         hidden_channels_ffn_text_encoder (int):
             Number of hidden channels of the feed-forward layers of the text encoder transformer. Defaults to 256.
 
-        num_heads_text_encoder (int):
-            Number of attention heads of the text encoder transformer. Defaults to 2.
-
         num_layers_text_encoder (int):
             Number of transformer layers in the text encoder. Defaults to 6.
+
+        num_heads_text_encoder (int):
+            Number of attention heads of the text encoder transformer when `use_s4_in_text_encoder` is False. Defaults to 2.
+            
+        use_s4_in_text_encoder (bool):
+            Use S4 instead of attention in transformer of text encoder. Defaults to False.
+        
+        d_state_s4_text_encoder (int):
+            State size (dimensionality of S4 parameters A, B, C). Generally shouldn't need to be adjusted and doesn't affect speed much. Defaults to 64.
+        
+        measure_s4_text_encoder (str):
+            Options for initialization of (A, B).
+                For NPLR mode, recommendations are "legs", "fout", "hippo" (combination of both).
+                For Diag mode, recommendations are "diag-inv", "diag-lin", "diag-legs", and "diag" (combination of diag-inv and diag-lin)
+        
+        lr_s4_text_encoder (float):
+            Passing in a number (e.g. 0.001) sets attributes of SSM parameers (A, B, dt). A custom optimizer hook is needed
+            to configure the optimizer to set the learning rates appropriately for these parameters.
+            
+        mode_s4_text_encoder (str):
+            Which kernel algorithm to use.
+                'nplr' is the full S4 model;
+                'diag' is the simpler S4D;
+                'slow' is a dense version for testing
+        
+        n_ssm_s4_text_encoder (int):
+            Number of independent trainable (A, B) SSMs, e.g.
+                n_ssm=1 means all A/B parameters are tied across the H different instantiations of C;
+                n_ssm=None means all H SSMs are completely independent.
+            Generally, changing this option can save parameters but doesn't affect performance or speed much.
+            This parameter must divide H
 
         kernel_size_text_encoder (int):
             Kernel size of the text encoder transformer FFN layers. Defaults to 3.
@@ -546,6 +574,12 @@ class VitsArgs(Coqpit):
     spec_segment_size: int = 32
     hidden_channels: int = 192
     hidden_channels_ffn_text_encoder: int = 768
+    use_s4_in_text_encoder = False
+    d_state_s4_text_encoder = 64
+    measure_s4_text_encoder = "legs"
+    lrlr_s4_text_encoder_s4 = 0.001
+    mode_s4_text_encoder = "nplr"
+    n_ssm_s4_text_encoder = None
     num_heads_text_encoder: int = 2
     num_layers_text_encoder: int = 6
     kernel_size_text_encoder: int = 3
@@ -659,7 +693,13 @@ class Vits(BaseTTS):
             self.args.num_layers_text_encoder,
             self.args.kernel_size_text_encoder,
             self.args.dropout_p_text_encoder,
+            self.args.d_state_s4,
+            self.args.measure_s4,
+            self.args.lr_s4,
+            self.args.mode_s4,
+            self.args.n_ssm_s4,
             language_emb_dim=self.embedded_language_dim,
+            use_s4=self.args.use_s4_in_text_encoder,
         )
 
         self.posterior_encoder = PosteriorEncoder(

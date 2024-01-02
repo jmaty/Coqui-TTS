@@ -5,6 +5,7 @@ from torch import nn
 
 from TTS.tts.layers.glow_tts.glow import WN
 from TTS.tts.layers.glow_tts.transformer import RelativePositionTransformer
+from TTS.tts.layers.vits.transformer_s4 import RelativePositionTransformerS4
 from TTS.tts.utils.helpers import sequence_mask
 
 LRELU_SLOPE = 0.1
@@ -37,7 +38,13 @@ class TextEncoder(nn.Module):
         num_layers: int,
         kernel_size: int,
         dropout_p: float,
+        d_state_s4: int,
+        measure_s4: str,
+        lr_s4: float,
+        mode_s4: str,
+        n_ssm_s4: int,
         language_emb_dim: int = None,
+        use_s4: bool = False,
     ):
         """Text Encoder for VITS model.
 
@@ -50,6 +57,7 @@ class TextEncoder(nn.Module):
             num_layers (int): Number of Transformer layers.
             kernel_size (int): Kernel size for the FFN layers in Transformer network.
             dropout_p (float): Dropout rate for the Transformer layers.
+            use_s4 (bool): Whether to use S4 instead of attention.
         """
         super().__init__()
         self.out_channels = out_channels
@@ -62,18 +70,35 @@ class TextEncoder(nn.Module):
         if language_emb_dim:
             hidden_channels += language_emb_dim
 
-        self.encoder = RelativePositionTransformer(
-            in_channels=hidden_channels,
-            out_channels=hidden_channels,
-            hidden_channels=hidden_channels,
-            hidden_channels_ffn=hidden_channels_ffn,
-            num_heads=num_heads,
-            num_layers=num_layers,
-            kernel_size=kernel_size,
-            dropout_p=dropout_p,
-            layer_norm_type="2",
-            rel_attn_window_size=4,
-        )
+        if use_s4:
+            self.encoder = RelativePositionTransformerS4(
+                in_channels=hidden_channels,
+                out_channels=hidden_channels,
+                hidden_channels=hidden_channels,
+                d_state=d_state_s4,
+                measure=measure_s4,
+                lr=lr_s4,
+                mode=mode_s4,
+                n_ssm=n_ssm_s4,
+                hidden_channels_ffn=hidden_channels_ffn,
+                num_layers=num_layers,
+                kernel_size=kernel_size,
+                dropout_p=dropout_p,
+                layer_norm_type="2",
+            )
+        else:
+            self.encoder = RelativePositionTransformer(
+                in_channels=hidden_channels,
+                out_channels=hidden_channels,
+                hidden_channels=hidden_channels,
+                hidden_channels_ffn=hidden_channels_ffn,
+                num_heads=num_heads,
+                num_layers=num_layers,
+                kernel_size=kernel_size,
+                dropout_p=dropout_p,
+                layer_norm_type="2",
+                rel_attn_window_size=4,
+            )
 
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
