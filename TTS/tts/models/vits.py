@@ -574,12 +574,12 @@ class VitsArgs(Coqpit):
     spec_segment_size: int = 32
     hidden_channels: int = 192
     hidden_channels_ffn_text_encoder: int = 768
-    use_s4_in_text_encoder = False
-    d_state_s4_text_encoder = 64
-    measure_s4_text_encoder = "legs"
-    lrlr_s4_text_encoder_s4 = 0.001
-    mode_s4_text_encoder = "nplr"
-    n_ssm_s4_text_encoder = None
+    use_s4_in_text_encoder: bool = False
+    d_state_s4_text_encoder: int = 64
+    measure_s4_text_encoder: str = "legs"
+    lr_s4_text_encoder: float = 0.001
+    mode_s4_text_encoder: str = "nplr"
+    n_ssm_s4_text_encoder: int = None
     num_heads_text_encoder: int = 2
     num_layers_text_encoder: int = 6
     kernel_size_text_encoder: int = 3
@@ -693,11 +693,11 @@ class Vits(BaseTTS):
             self.args.num_layers_text_encoder,
             self.args.kernel_size_text_encoder,
             self.args.dropout_p_text_encoder,
-            self.args.d_state_s4,
-            self.args.measure_s4,
-            self.args.lr_s4,
-            self.args.mode_s4,
-            self.args.n_ssm_s4,
+            self.args.d_state_s4_text_encoder,
+            self.args.measure_s4_text_encoder,
+            self.args.lr_s4_text_encoder,
+            self.args.mode_s4_text_encoder,
+            self.args.n_ssm_s4_text_encoder,
             language_emb_dim=self.embedded_language_dim,
             use_s4=self.args.use_s4_in_text_encoder,
         )
