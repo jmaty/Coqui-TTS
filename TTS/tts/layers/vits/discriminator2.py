@@ -38,7 +38,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class VitsDiscriminator(nn.Module):
-    """VITS discriminator wrapping one Scale Discriminator and a stack of Period Discriminator.
+    """VITS discriminator wrapping a stack of Scale Discriminators (like in HifiGAN) and a stack of Period Discriminator.
 
     ::
         waveform -> ScaleDiscriminator() -> scores_sd, feats_sd --> append() -> scores, feats
