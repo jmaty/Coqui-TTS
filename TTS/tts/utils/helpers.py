@@ -231,6 +231,10 @@ def maximum_path_numpy(value, mask, max_neg_val=None):
     for j in reversed(range(t_y)):
         path[index_range, index, j] = 1
         index = index + direction[index_range, index, j] - 1
+        # JMa: Values in `index` must not be negative!
+        # Fix error like
+        # IndexError: index -71 is out of bounds for axis 1 with size 70
+        index[index < 0] = 0
     path = path * mask.astype(np.float32)
     path = torch.from_numpy(path).to(device=device, dtype=dtype)
     return path
