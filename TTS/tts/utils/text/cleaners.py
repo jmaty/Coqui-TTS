@@ -44,8 +44,25 @@ def remove_aux_symbols(text):
 
 
 def replace_symbols(text, lang="en"):
+    """Replace symbols based on the lenguage tag.
+
+    Args:
+      text:
+       Input text.
+      lang:
+        Lenguage identifier. ex: "en", "fr", "pt", "ca".
+
+    Returns:
+      The modified text
+      example:
+        input args:
+            text: "si l'avi cau, diguem-ho"
+            lang: "ca"
+        Output:
+            text: "si lavi cau, diguemho"
+    """
     text = text.replace(";", ",")
-    text = text.replace("-", " ")
+    text = text.replace("-", " ") if lang != "ca" else text.replace("-", "")
     text = text.replace(":", ",")
     if lang == "en":
         text = text.replace("&", " and ")
@@ -53,6 +70,9 @@ def replace_symbols(text, lang="en"):
         text = text.replace("&", " et ")
     elif lang == "pt":
         text = text.replace("&", " e ")
+    elif lang == "ca":
+        text = text.replace("&", " i ")
+        text = text.replace("'", "")
     return text
 
 
@@ -144,7 +164,8 @@ def multilingual_cleaners(text):
     text = collapse_whitespace(text)
     return text
 
+
 def no_cleaners(text):
-    """JMa: Basic pipeline that only collapses whitespace. No lowercase is done!"""
-    text = collapse_whitespace(text)
+    # remove newline characters
+    text = text.replace("\n", "")
     return text

@@ -50,7 +50,6 @@ class GravesAttention(nn.Module):
     COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
 
     def __init__(self, query_dim, K):
-
         super().__init__()
         self._mask_value = 1e-8
         self.K = K
@@ -484,4 +483,4 @@ def init_attn(
             beta=0.9,
         )
 
-    raise RuntimeError(" [!] Given Attention Type '{attn_type}' is not exist.")
+    raise RuntimeError(f" [!] Given Attention Type '{attn_type}' is not exist.")

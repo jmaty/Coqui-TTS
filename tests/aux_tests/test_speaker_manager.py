@@ -3,11 +3,11 @@ import unittest
 
 import numpy as np
 import torch
+from trainer.io import save_checkpoint
 
 from tests import get_tests_input_path
 from TTS.config import load_config
 from TTS.encoder.utils.generic_utils import setup_encoder_model
-from TTS.encoder.utils.io import save_checkpoint
 from TTS.tts.utils.speakers import SpeakerManager
 from TTS.utils.audio import AudioProcessor
 
@@ -16,6 +16,7 @@ encoder_model_path = os.path.join(get_tests_input_path(), "checkpoint_0.pth")
 sample_wav_path = os.path.join(get_tests_input_path(), "../data/ljspeech/wavs/LJ001-0001.wav")
 sample_wav_path2 = os.path.join(get_tests_input_path(), "../data/ljspeech/wavs/LJ001-0002.wav")
 d_vectors_file_path = os.path.join(get_tests_input_path(), "../data/dummy_speakers.json")
+d_vectors_file_pth_path = os.path.join(get_tests_input_path(), "../data/dummy_speakers.pth")
 
 
 class SpeakerManagerTest(unittest.TestCase):
@@ -29,7 +30,7 @@ class SpeakerManagerTest(unittest.TestCase):
 
         # create a dummy speaker encoder
         model = setup_encoder_model(config)
-        save_checkpoint(model, None, None, get_tests_input_path(), 0)
+        save_checkpoint(config, model, None, None, 0, 0, get_tests_input_path())
 
         # load audio processor and speaker encoder
         ap = AudioProcessor(**config.audio)
@@ -58,12 +59,13 @@ class SpeakerManagerTest(unittest.TestCase):
         # remove dummy model
         os.remove(encoder_model_path)
 
-    @staticmethod
-    def test_speakers_file_processing():
+    def test_dvector_file_processing(self):
         manager = SpeakerManager(d_vectors_file_path=d_vectors_file_path)
-        print(manager.num_speakers)
-        print(manager.embedding_dim)
-        print(manager.clip_ids)
+        self.assertEqual(manager.num_speakers, 1)
+        self.assertEqual(manager.embedding_dim, 256)
+        manager = SpeakerManager(d_vectors_file_path=d_vectors_file_pth_path)
+        self.assertEqual(manager.num_speakers, 1)
+        self.assertEqual(manager.embedding_dim, 256)
         d_vector = manager.get_embedding_by_clip(manager.clip_ids[0])
         assert len(d_vector) == 256
         d_vectors = manager.get_embeddings_by_name(manager.speaker_names[0])

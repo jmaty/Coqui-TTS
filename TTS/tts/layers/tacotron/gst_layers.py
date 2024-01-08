@@ -31,7 +31,6 @@ class ReferenceEncoder(nn.Module):
     """
 
     def __init__(self, num_mel, embedding_dim):
-
         super().__init__()
         self.num_mel = num_mel
         filters = [1] + [32, 32, 64, 64, 128, 128]
@@ -119,7 +118,6 @@ class MultiHeadAttention(nn.Module):
     """
 
     def __init__(self, query_dim, key_dim, num_units, num_heads):
-
         super().__init__()
         self.num_units = num_units
         self.num_heads = num_heads
@@ -139,7 +137,7 @@ class MultiHeadAttention(nn.Module):
         keys = torch.stack(torch.split(keys, split_size, dim=2), dim=0)  # [h, N, T_k, num_units/h]
         values = torch.stack(torch.split(values, split_size, dim=2), dim=0)  # [h, N, T_k, num_units/h]
 
-        # score = softmax(QK^T / (d_k ** 0.5))
+        # score = softmax(QK^T / (d_k**0.5))
         scores = torch.matmul(queries, keys.transpose(2, 3))  # [h, N, T_q, T_k]
         scores = scores / (self.key_dim**0.5)
         scores = F.softmax(scores, dim=3)

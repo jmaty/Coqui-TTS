@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch.nn.utils import weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 
 from TTS.utils.io import load_fsspec
 from TTS.vocoder.layers.melgan import ResidualStack
@@ -80,14 +80,14 @@ class MelganGenerator(nn.Module):
         for _, layer in enumerate(self.layers):
             if len(layer.state_dict()) != 0:
                 try:
-                    nn.utils.remove_weight_norm(layer)
+                    nn.utils.parametrize.remove_parametrizations(layer, "weight")
                 except ValueError:
                     layer.remove_weight_norm()
 
     def load_checkpoint(
-        self, config, checkpoint_path, eval=False
+        self, config, checkpoint_path, eval=False, cache=False
     ):  # pylint: disable=unused-argument, redefined-builtin
-        state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"))
+        state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"), cache=cache)
         self.load_state_dict(state["model"])
         if eval:
             self.eval()

@@ -5,29 +5,35 @@ import torch
 from torch import nn
 
 
-def numpy_to_torch(np_array, dtype, cuda=False):
+def numpy_to_torch(np_array, dtype, cuda=False, device="cpu"):
+    if cuda:
+        device = "cuda"
     if np_array is None:
         return None
-    tensor = torch.as_tensor(np_array, dtype=dtype)
-    if cuda:
-        return tensor.cuda()
+    tensor = torch.as_tensor(np_array, dtype=dtype, device=device)
     return tensor
 
 
-def compute_style_mel(style_wav, ap, cuda=False):
-    style_mel = torch.FloatTensor(ap.melspectrogram(ap.load_wav(style_wav, sr=ap.sample_rate))).unsqueeze(0)
+def compute_style_mel(style_wav, ap, cuda=False, device="cpu"):
     if cuda:
-        return style_mel.cuda()
+        device = "cuda"
+    style_mel = torch.FloatTensor(
+        ap.melspectrogram(ap.load_wav(style_wav, sr=ap.sample_rate)),
+        device=device,
+    ).unsqueeze(0)
     return style_mel
 
 
+# JMa: add `aux_input` to enable extra input (length_scale, durations) 
 def run_model_torch(
     model: nn.Module,
     inputs: torch.Tensor,
     speaker_id: int = None,
     style_mel: torch.Tensor = None,
+    style_text: str = None,
     d_vector: torch.Tensor = None,
     language_id: torch.Tensor = None,
+    aux_input: Dict = {},
 ) -> Dict:
     """Run a torch model for inference. It does not support batch inference.
 
@@ -46,16 +52,19 @@ def run_model_torch(
         _func = model.module.inference
     else:
         _func = model.inference
-    outputs = _func(
-        inputs,
-        aux_input={
-            "x_lengths": input_lengths,
-            "speaker_ids": speaker_id,
-            "d_vectors": d_vector,
-            "style_mel": style_mel,
-            "language_ids": language_id,
-        },
-    )
+    # JMa: propagate other inputs like `durations``, `length_scale``, and  `min_input_length`
+    #      to `aux_input` to enable changing length (durations) per each input text (sentence)
+    #      and to set minimum allowed length of each input char/phoneme
+    #   - `length_scale` changes length of the whole generated wav
+    #   - `durations` sets up duration (in frames) for each input text ID
+    #   -  minimum allowed length (in frames) per input ID (char/phoneme) during inference
+    aux_input["x_lengths"] = input_lengths
+    aux_input["speaker_ids"] = speaker_id
+    aux_input["d_vectors"] = d_vector
+    aux_input["style_mel"] = style_mel
+    aux_input["style_text"] = style_text
+    aux_input["language_ids"] = language_id
+    outputs = _func(inputs, aux_input)
     return outputs
 
 
@@ -71,22 +80,22 @@ def inv_spectrogram(postnet_output, ap, CONFIG):
     return wav
 
 
-def id_to_torch(aux_id, cuda=False):
+def id_to_torch(aux_id, cuda=False, device="cpu"):
+    if cuda:
+        device = "cuda"
     if aux_id is not None:
         aux_id = np.asarray(aux_id)
-        aux_id = torch.from_numpy(aux_id)
-    if cuda:
-        return aux_id.cuda()
+        aux_id = torch.from_numpy(aux_id).to(device)
     return aux_id
 
 
-def embedding_to_torch(d_vector, cuda=False):
+def embedding_to_torch(d_vector, cuda=False, device="cpu"):
+    if cuda:
+        device = "cuda"
     if d_vector is not None:
         d_vector = np.asarray(d_vector)
         d_vector = torch.from_numpy(d_vector).type(torch.FloatTensor)
-        d_vector = d_vector.squeeze().unsqueeze(0)
-    if cuda:
-        return d_vector.cuda()
+        d_vector = d_vector.squeeze().unsqueeze(0).to(device)
     return d_vector
 
 
@@ -108,6 +117,7 @@ def apply_griffin_lim(inputs, input_lens, CONFIG, ap):
     return wavs
 
 
+# JMa: add `aux_input` to enable extra input (like length_scale, durations)
 def synthesis(
     model,
     text,
@@ -115,10 +125,12 @@ def synthesis(
     use_cuda,
     speaker_id=None,
     style_wav=None,
+    style_text=None,
     use_griffin_lim=False,
     do_trim_silence=False,
     d_vector=None,
     language_id=None,
+    aux_input={},
 ):
     """Synthesize voice for the given text using Griffin-Lim vocoder or just compute output features to be passed to
     the vocoder model.
@@ -140,7 +152,12 @@ def synthesis(
             Speaker ID passed to the speaker embedding layer in multi-speaker model. Defaults to None.
 
         style_wav (str | Dict[str, float]):
-            Path or tensor to/of a waveform used for computing the style embedding. Defaults to None.
+            Path or tensor to/of a waveform used for computing the style embedding based on GST or Capacitron.
+            Defaults to None, meaning that Capacitron models will sample from the prior distribution to
+            generate random but realistic prosody.
+
+        style_text (str):
+            Transcription of style_wav for Capacitron models. Defaults to None.
 
         enable_eos_bos_chars (bool):
             enable special chars for end of sentence and start of sentence. Defaults to False.
@@ -154,37 +171,76 @@ def synthesis(
         language_id (int):
             Language ID passed to the language embedding layer in multi-langual model. Defaults to None.
     """
-    # GST processing
+    # device
+    device = next(model.parameters()).device
+    if use_cuda:
+        device = "cuda"
+
+    # GST or Capacitron processing
+    # TODO: need to handle the case of setting both gst and capacitron to true somewhere
     style_mel = None
     if CONFIG.has("gst") and CONFIG.gst and style_wav is not None:
         if isinstance(style_wav, dict):
             style_mel = style_wav
         else:
-            style_mel = compute_style_mel(style_wav, model.ap, cuda=use_cuda)
+            style_mel = compute_style_mel(style_wav, model.ap, device=device)
+
+    if CONFIG.has("capacitron_vae") and CONFIG.use_capacitron_vae and style_wav is not None:
+        style_mel = compute_style_mel(style_wav, model.ap, device=device)
+        style_mel = style_mel.transpose(1, 2)  # [1, time, depth]
+
+    language_name = None
+    if language_id is not None:
+        language = [k for k, v in model.language_manager.name_to_id.items() if v == language_id]
+        assert len(language) == 1, "language_id must be a valid language"
+        language_name = language[0]
+
     # convert text to sequence of token IDs
     text_inputs = np.asarray(
-        model.tokenizer.text_to_ids(text, language=language_id),
+        model.tokenizer.text_to_ids(text, language=language_name),
         dtype=np.int32,
     )
     # pass tensors to backend
     if speaker_id is not None:
-        speaker_id = id_to_torch(speaker_id, cuda=use_cuda)
+        speaker_id = id_to_torch(speaker_id, device=device)
 
     if d_vector is not None:
-        d_vector = embedding_to_torch(d_vector, cuda=use_cuda)
+        d_vector = embedding_to_torch(d_vector, device=device)
 
     if language_id is not None:
-        language_id = id_to_torch(language_id, cuda=use_cuda)
+        language_id = id_to_torch(language_id, device=device)
 
     if not isinstance(style_mel, dict):
-        style_mel = numpy_to_torch(style_mel, torch.float, cuda=use_cuda)
-    text_inputs = numpy_to_torch(text_inputs, torch.long, cuda=use_cuda)
+        # GST or Capacitron style mel
+        style_mel = numpy_to_torch(style_mel, torch.float, device=device)
+        if style_text is not None:
+            style_text = np.asarray(
+                model.tokenizer.text_to_ids(style_text, language=language_id),
+                dtype=np.int32,
+            )
+            style_text = numpy_to_torch(style_text, torch.long, device=device)
+            style_text = style_text.unsqueeze(0)
+
+    text_inputs = numpy_to_torch(text_inputs, torch.long, device=device)
     text_inputs = text_inputs.unsqueeze(0)
+
     # synthesize voice
-    outputs = run_model_torch(model, text_inputs, speaker_id, style_mel, d_vector=d_vector, language_id=language_id)
+    outputs = run_model_torch(
+        model,
+        text_inputs,
+        speaker_id,
+        style_mel,
+        style_text,
+        d_vector=d_vector,
+        language_id=language_id,
+        # JMa: add `aux_input` to enable extra input (length_scale, durations)
+        aux_input=aux_input,
+    )
     model_outputs = outputs["model_outputs"]
     model_outputs = model_outputs[0].data.cpu().numpy()
     alignments = outputs["alignments"]
+    # JMa: extract durations
+    durations = outputs.get("durations", None)
 
     # convert outputs to numpy
     # plot results
@@ -203,6 +259,8 @@ def synthesis(
         "alignments": alignments,
         "text_inputs": text_inputs,
         "outputs": outputs,
+        # JMa: return durations
+        "durations": durations,
     }
     return return_dict
 
@@ -253,18 +311,28 @@ def transfer_voice(
         do_trim_silence (bool):
             trim silence after synthesis. Defaults to False.
     """
+    # device
+    device = next(model.parameters()).device
+    if use_cuda:
+        device = "cuda"
+
     # pass tensors to backend
     if speaker_id is not None:
-        speaker_id = id_to_torch(speaker_id, cuda=use_cuda)
+        speaker_id = id_to_torch(speaker_id, device=device)
 
     if d_vector is not None:
-        d_vector = embedding_to_torch(d_vector, cuda=use_cuda)
+        d_vector = embedding_to_torch(d_vector, device=device)
 
     if reference_d_vector is not None:
-        reference_d_vector = embedding_to_torch(reference_d_vector, cuda=use_cuda)
+        reference_d_vector = embedding_to_torch(reference_d_vector, device=device)
 
     # load reference_wav audio
-    reference_wav = embedding_to_torch(model.ap.load_wav(reference_wav, sr=model.ap.sample_rate), cuda=use_cuda)
+    reference_wav = embedding_to_torch(
+        model.ap.load_wav(
+            reference_wav, sr=model.args.encoder_sample_rate if model.args.encoder_sample_rate else model.ap.sample_rate
+        ),
+        device=device,
+    )
 
     if hasattr(model, "module"):
         _func = model.module.inference_voice_conversion

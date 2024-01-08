@@ -14,7 +14,7 @@ class DiscriminatorS(torch.nn.Module):
 
     def __init__(self, use_spectral_norm=False):
         super().__init__()
-        norm_f = nn.utils.spectral_norm if use_spectral_norm else nn.utils.weight_norm
+        norm_f = nn.utils.spectral_norm if use_spectral_norm else nn.utils.parametrizations.weight_norm
         self.convs = nn.ModuleList(
             [
                 norm_f(Conv1d(1, 16, 15, 1, padding=7)),
@@ -58,10 +58,8 @@ class VitsDiscriminator(nn.Module):
         use_spectral_norm (bool): if `True` swith to spectral norm instead of weight norm.
     """
 
-    def __init__(self, use_spectral_norm=False):
+    def __init__(self, periods=(2, 3, 5, 7, 11), use_spectral_norm=False):
         super().__init__()
-        periods = [2, 3, 5, 7, 11]
-
         self.nets = nn.ModuleList()
         self.nets.append(DiscriminatorS(use_spectral_norm=use_spectral_norm))
         self.nets.extend([DiscriminatorP(i, use_spectral_norm=use_spectral_norm) for i in periods])

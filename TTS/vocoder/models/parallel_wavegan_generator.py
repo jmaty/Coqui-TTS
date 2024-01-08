@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import torch
+from torch.nn.utils.parametrize import remove_parametrizations
 
 from TTS.utils.io import load_fsspec
 from TTS.vocoder.layers.parallel_wavegan import ResidualBlock
@@ -33,7 +34,6 @@ class ParallelWaveganGenerator(torch.nn.Module):
         upsample_factors=[4, 4, 4, 4],
         inference_padding=2,
     ):
-
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -127,7 +127,7 @@ class ParallelWaveganGenerator(torch.nn.Module):
         def _remove_weight_norm(m):
             try:
                 # print(f"Weight norm is removed from {m}.")
-                torch.nn.utils.remove_weight_norm(m)
+                remove_parametrizations(m, "weight")
             except ValueError:  # this module didn't have weight norm
                 return
 
@@ -136,7 +136,7 @@ class ParallelWaveganGenerator(torch.nn.Module):
     def apply_weight_norm(self):
         def _apply_weight_norm(m):
             if isinstance(m, (torch.nn.Conv1d, torch.nn.Conv2d)):
-                torch.nn.utils.weight_norm(m)
+                torch.nn.utils.parametrizations.weight_norm(m)
                 # print(f"Weight norm is applied to {m}.")
 
         self.apply(_apply_weight_norm)
@@ -153,9 +153,9 @@ class ParallelWaveganGenerator(torch.nn.Module):
         return self._get_receptive_field_size(self.layers, self.stacks, self.kernel_size)
 
     def load_checkpoint(
-        self, config, checkpoint_path, eval=False
+        self, config, checkpoint_path, eval=False, cache=False
     ):  # pylint: disable=unused-argument, redefined-builtin
-        state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"))
+        state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"), cache=cache)
         self.load_state_dict(state["model"])
         if eval:
             self.eval()

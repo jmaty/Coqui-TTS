@@ -53,14 +53,13 @@ We tried to collect common issues and questions we receive about 🐸TTS. It is 
         "mixed_precision": false,
         "output_path": "recipes/ljspeech/glow_tts/",
         "test_sentences": ["Test this sentence.", "This test sentence.", "Sentence this test."],
-        "datasets":[{"name": "ljspeech", "meta_file_train":"metadata.csv", "path": "recipes/ljspeech/LJSpeech-1.1/"}]
+        "datasets":[{"formatter": "ljspeech", "meta_file_train":"metadata.csv", "path": "recipes/ljspeech/LJSpeech-1.1/"}]
     }
     ```
 
 6. Train your model.
     - SingleGPU training: ```CUDA_VISIBLE_DEVICES="0" python train_tts.py --config_path config.json```
-    - MultiGPU training: ```CUDA_VISIBLE_DEVICES="0,1,2" python distribute.py --script train_tts.py --config_path config.json```
-        - This command uses all the GPUs given in ```CUDA_VISIBLE_DEVICES```. If you don't specify, it uses all the GPUs available.
+    - MultiGPU training: ```python3 -m trainer.distribute --gpus "0,1" --script TTS/bin/train_tts.py --config_path config.json```
 
 **Note:** You can also train your model using pure 🐍 python. Check ```{eval-rst} :ref: 'tutorial_for_nervous_beginners'```.
 
