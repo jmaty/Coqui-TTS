@@ -7,7 +7,6 @@ from TTS.tts.datasets import load_tts_samples
 from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
 from TTS.utils.manage import ModelManager
 
-
 # Logging parameters
 RUN_NAME = "GPT_XTTS_LJSpeech_FT"
 PROJECT_NAME = "XTTS_trainer"
@@ -42,8 +41,8 @@ os.makedirs(CHECKPOINTS_OUT_PATH, exist_ok=True)
 
 
 # DVAE files
-DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.1/dvae.pth"
-MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.1/mel_stats.pth"
+DVAE_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.2/dvae.pth"
+MEL_NORM_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.2/mel_stats.pth"
 
 # Set the path to the downloaded files
 DVAE_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, DVAE_CHECKPOINT_LINK.split("/")[-1])
@@ -56,23 +55,25 @@ if not os.path.isfile(DVAE_CHECKPOINT) or not os.path.isfile(MEL_NORM_FILE):
 
 
 # Download XTTS v1.1 checkpoint if needed
-TOKENIZER_FILE_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.1/vocab.json"
-XTTS_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.1/model.pth"
+TOKENIZER_FILE_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.2/vocab.json"
+XTTS_CHECKPOINT_LINK = "https://coqui.gateway.scarf.sh/hf-coqui/XTTS-v1/v1.1.2/model.pth"
 
 # XTTS transfer learning parameters: You we need to provide the paths of XTTS model checkpoint that you want to do the fine tuning.
-TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, TOKENIZER_FILE_LINK.split("/")[-1]) # vocab.json file
-XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, XTTS_CHECKPOINT_LINK.split("/")[-1]) # model.pth file
+TOKENIZER_FILE = os.path.join(CHECKPOINTS_OUT_PATH, TOKENIZER_FILE_LINK.split("/")[-1])  # vocab.json file
+XTTS_CHECKPOINT = os.path.join(CHECKPOINTS_OUT_PATH, XTTS_CHECKPOINT_LINK.split("/")[-1])  # model.pth file
 
 # download XTTS v1.1 files if needed
 if not os.path.isfile(TOKENIZER_FILE) or not os.path.isfile(XTTS_CHECKPOINT):
     print(" > Downloading XTTS v1.1 files!")
-    ModelManager._download_model_files([TOKENIZER_FILE_LINK, XTTS_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True)
+    ModelManager._download_model_files(
+        [TOKENIZER_FILE_LINK, XTTS_CHECKPOINT_LINK], CHECKPOINTS_OUT_PATH, progress_bar=True
+    )
 
 
 # Training sentences generations
-SPEAKER_REFERENCE = (
+SPEAKER_REFERENCE = [
     "./tests/data/ljspeech/wavs/LJ001-0002.wav"  # speaker reference to be used in training test sentences
-)
+]
 LANGUAGE = config_dataset.language
 
 
@@ -93,12 +94,9 @@ def main():
         gpt_num_audio_tokens=8194,
         gpt_start_audio_token=8192,
         gpt_stop_audio_token=8193,
-        use_ne_hifigan=True, # if it is true it will keep the non-enhanced keys on the output checkpoint
     )
     # define audio config
-    audio_config = XttsAudioConfig(
-        sample_rate=22050, dvae_sample_rate=22050, diffusion_sample_rate=24000, output_sample_rate=24000
-    )
+    audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=24000)
     # training parameters config
     config = GPTTrainerConfig(
         output_path=OUT_PATH,

@@ -59,8 +59,8 @@ def split_dataset(items, eval_split_max_size=None, eval_split_size=0.01):
 def add_extra_keys(metadata, language, dataset_name):
     changes = {}
     for item in metadata:
-        # JMa: Add language name only if not defined at the sample level. Could  be good for multi-language datasets.
-        if not item["language"]:
+        # JMa: Add language name only if not defined at the sample level. Could be good for multi-language datasets.
+        if not item.get("language"):
             item["language"] = language
         # JMa: Prepend dataset name to speaker name. Could be good for multispeaker datasets.
         if dataset_name and item["speaker_name"] != dataset_name and not item["speaker_name"].startswith(dataset_name+"_"):

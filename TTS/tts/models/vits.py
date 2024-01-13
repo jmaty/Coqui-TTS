@@ -1187,20 +1187,21 @@ class Vits(BaseTTS):
             length_scale = aux_input.get("length_scale", self.length_scale)
             # JMa: `length_scale` is used to scale duration relatively to the predicted values, it should be:
             # - float (or int) => duration of the output speech will be linearly scaled
-            # - torch vector `[B, T_seq]`` (`B`` is batch size, `T_seq`` is the length of the input symbols)
+            # - torch tensor `[B, T_seq]`` (`B`` is batch size, `T_seq`` is the length of the input symbols)
             #   => each input symbol (phone or char) is scaled according to the corresponding value in the torch vector
-            if isinstance(length_scale, float) or isinstance(length_scale, int):
-                w *= length_scale
-            else:
-                assert length_scale.shape[-1] == w.shape[-1]
-                w *= length_scale.unsqueeze(0)
+            assert torch.is_tensor(length_scale) or isinstance(length_scale, (float, int)), "Length scale `length_scale` must be a tensor or float/int"
+            if torch.is_tensor(length_scale):
+                assert length_scale.shape[-1] == w.shape[-1], "Length scale ({length_scale.shape[-1]}) must be of the same length as input tokens ({w.shape[-1]})"
+                length_scale = length_scale.to(device=w.device).unsqueeze(0)
+            w *= length_scale        
         
         else:
             # To force absolute durations (in frames), "durations" has to be in `aux_input`.
-            # The durations should be a torch vector [B, N] (`B`` is batch size, `T_seq`` is the length of the input symbols)
+            # The durations should be a torch tensor [B, N] (`B`` is batch size, `T_seq`` is the length of the input symbols)
             # => each input symbol (phone or char) will have the duration given by the corresponding value (number of frames) in the torch vector
-            assert durations.shape[-1] == x.shape[-1]
-            w = durations.unsqueeze(0)
+            assert torch.is_tensor(durations) and durations.shape[-1] == x.shape[-1], \
+                f"Durations ({durations.shape[-1]}) must be a tensor of the same length as input tokens ({x.shape[-1]})"
+            w = durations.to(device=x.device).unsqueeze(0)
 
         w_ceil = torch.ceil(w)
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()

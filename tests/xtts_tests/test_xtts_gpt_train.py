@@ -60,7 +60,9 @@ XTTS_CHECKPOINT = None  # "/raid/edresson/dev/Checkpoints/XTTS_evaluation/xtts_s
 
 
 # Training sentences generations
-SPEAKER_REFERENCE = "tests/data/ljspeech/wavs/LJ001-0002.wav"  # speaker reference to be used in training test sentences
+SPEAKER_REFERENCE = [
+    "tests/data/ljspeech/wavs/LJ001-0002.wav"
+]  # speaker reference to be used in training test sentences
 LANGUAGE = config_dataset.language
 
 
@@ -87,9 +89,7 @@ model_args = GPTArgs(
     gpt_start_audio_token=8192,
     gpt_stop_audio_token=8193,
 )
-audio_config = XttsAudioConfig(
-    sample_rate=22050, dvae_sample_rate=22050, diffusion_sample_rate=24000, output_sample_rate=24000
-)
+audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=24000)
 config = GPTTrainerConfig(
     epochs=1,
     output_path=OUT_PATH,

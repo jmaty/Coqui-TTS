@@ -141,17 +141,30 @@ class GPTTrainer(BaseTTS):
             print(">> GPT weights restored from:", self.args.gpt_checkpoint)
 
         # Mel spectrogram extractor for conditioning
-        self.torch_mel_spectrogram_style_encoder = TorchMelSpectrogram(
-            filter_length=4096,
-            hop_length=1024,
-            win_length=4096,
-            normalize=False,
-            sampling_rate=config.audio.sample_rate,
-            mel_fmin=0,
-            mel_fmax=8000,
-            n_mel_channels=80,
-            mel_norm_file=self.args.mel_norm_file,
-        )
+        if self.args.gpt_use_perceiver_resampler:
+            self.torch_mel_spectrogram_style_encoder = TorchMelSpectrogram(
+                filter_length=2048,
+                hop_length=256,
+                win_length=1024,
+                normalize=False,
+                sampling_rate=config.audio.sample_rate,
+                mel_fmin=0,
+                mel_fmax=8000,
+                n_mel_channels=80,
+                mel_norm_file=self.args.mel_norm_file,
+            )
+        else:
+            self.torch_mel_spectrogram_style_encoder = TorchMelSpectrogram(
+                filter_length=4096,
+                hop_length=1024,
+                win_length=4096,
+                normalize=False,
+                sampling_rate=config.audio.sample_rate,
+                mel_fmin=0,
+                mel_fmax=8000,
+                n_mel_channels=80,
+                mel_norm_file=self.args.mel_norm_file,
+            )
 
         # Load DVAE
         self.dvae = DiscreteVAE(
@@ -186,7 +199,7 @@ class GPTTrainer(BaseTTS):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, text_inputs, text_lengths, audio_codes, wav_lengths, cond_mels, cond_idxs):
+    def forward(self, text_inputs, text_lengths, audio_codes, wav_lengths, cond_mels, cond_idxs, cond_lens):
         """
         Forward pass that uses both text and voice in either text conditioning mode or voice conditioning mode
         (actuated by `text_first`).
@@ -197,23 +210,34 @@ class GPTTrainer(BaseTTS):
         wav_lengths: long tensor, (b,)
         cond_mels: MEL float tensor, (b, num_samples, 80,t_m)
         cond_idxs: cond start and end indexs, (b, 2)
+        cond_lens: long tensor, (b,)
         """
         losses = self.xtts.gpt(
-            text_inputs, text_lengths, audio_codes, wav_lengths, cond_mels=cond_mels, cond_idxs=cond_idxs
+            text_inputs,
+            text_lengths,
+            audio_codes,
+            wav_lengths,
+            cond_mels=cond_mels,
+            cond_idxs=cond_idxs,
+            cond_lens=cond_lens,
         )
         return losses
 
     @torch.no_grad()
     def test_run(self, assets) -> Tuple[Dict, Dict]:  # pylint: disable=W0613
+        test_audios = {}
         if self.config.test_sentences:
             # init gpt for inference mode
             self.xtts.gpt.init_gpt_for_inference(kv_cache=self.args.kv_cache, use_deepspeed=False)
             self.xtts.gpt.eval()
-            test_audios = {}
             print(" | > Synthesizing test sentences.")
             for idx, s_info in enumerate(self.config.test_sentences):
                 wav = self.xtts.synthesize(
-                    s_info["text"], self.config, s_info["speaker_wav"], s_info["language"], gpt_cond_len=3
+                    s_info["text"],
+                    self.config,
+                    s_info["speaker_wav"],
+                    s_info["language"],
+                    gpt_cond_len=3,
                 )["wav"]
                 test_audios["{}-audio".format(idx)] = wav
 
@@ -269,7 +293,6 @@ class GPTTrainer(BaseTTS):
         del batch["padded_text"]
         del batch["wav"]
         del batch["conditioning"]
-        del batch["cond_lens"]
         return batch
 
     def train_step(self, batch, criterion):
@@ -280,8 +303,11 @@ class GPTTrainer(BaseTTS):
         audio_codes = batch["audio_codes"]
         wav_lengths = batch["wav_lengths"]
         cond_idxs = batch["cond_idxs"]
+        cond_lens = batch["cond_lens"]
 
-        loss_text, loss_mel, _ = self.forward(text_inputs, text_lengths, audio_codes, wav_lengths, cond_mels, cond_idxs)
+        loss_text, loss_mel, _ = self.forward(
+            text_inputs, text_lengths, audio_codes, wav_lengths, cond_mels, cond_idxs, cond_lens
+        )
         loss_dict["loss_text_ce"] = loss_text * self.args.gpt_loss_text_ce_weight
         loss_dict["loss_mel_ce"] = loss_mel * self.args.gpt_loss_mel_ce_weight
         loss_dict["loss"] = loss_dict["loss_text_ce"] + loss_dict["loss_mel_ce"]
@@ -292,9 +318,13 @@ class GPTTrainer(BaseTTS):
         batch["cond_idxs"] = None
         return self.train_step(batch, criterion)
 
-    def on_epoch_start(self, trainer):  # pylint: disable=W0613
-        # guarante that dvae will be in eval mode after .train() on evaluation end
-        self.dvae = self.dvae.eval()
+    def on_train_epoch_start(self, trainer):
+        trainer.model.eval()  # the whole model to eval
+        # put gpt model in training mode
+        if hasattr(trainer.model, "module") and hasattr(trainer.model.module, "xtts"):
+            trainer.model.module.xtts.gpt.train()
+        else:
+            trainer.model.xtts.gpt.train()
 
     def on_init_end(self, trainer):  # pylint: disable=W0613
         # ignore similarities.pth on clearml save/upload
@@ -360,7 +390,8 @@ class GPTTrainer(BaseTTS):
             else:
                 loader = DataLoader(
                     dataset,
-                    batch_sampler=sampler,
+                    sampler=sampler,
+                    batch_size = config.eval_batch_size if is_eval else config.batch_size,
                     collate_fn=dataset.collate_fn,
                     num_workers=config.num_eval_loader_workers if is_eval else config.num_loader_workers,
                     pin_memory=False,
