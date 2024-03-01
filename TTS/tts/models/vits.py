@@ -112,7 +112,7 @@ def wav_to_spec(y, n_fft, hop_length, win_length, center=False):
     wnsize_dtype_device = str(win_length) + "_" + dtype_device
     if wnsize_dtype_device not in hann_window:
         hann_window[wnsize_dtype_device] = torch.hann_window(win_length).to(dtype=y.dtype, device=y.device)
-    
+
     pad_size = int((n_fft - hop_length) / 2)
     y = torch.nn.functional.pad(y, (pad_size, pad_size), mode="reflect")
     y = y.squeeze(1)
@@ -307,13 +307,13 @@ class VitsDataset(TTSDataset):
             audio_len = os.path.getsize(wav_file) / 16 * 8  # assuming 16bit audio
             lens.append(audio_len)
         return lens
-    
+
 
     def duration_to_attn_matrix(self, durations):
         n_units = durations.shape[0]
         n_frames = int(durations.sum())
         frame_beg = 0
-        
+
         attn_mask = torch.zeros([n_units, n_frames])
         for idx, dur in enumerate(durations):
             if dur > 0:
@@ -322,7 +322,7 @@ class VitsDataset(TTSDataset):
                 frame_beg += dur
 
         return attn_mask
-    
+
 
     def pad_attn_batch(self, attn_batch):
         batch_size = len(attn_batch)
@@ -337,7 +337,7 @@ class VitsDataset(TTSDataset):
             attn_padded[i, : n_rows[i], : n_cols[i]] = torch.FloatTensor(attn_batch[i])
 
         return attn_padded
-    
+
 
     def collate_fn(self, batch):
         """
@@ -989,9 +989,11 @@ class Vits(BaseTTS):
 
         return duration_loss
 
+    def get_criterion(self):
+        return ['DiscriminatorLoss', 'GeneratorLoss']
 
     def forward_mas(self, z_p, m_p, logs_p, x_mask, y_mask):
-        
+
         attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(y_mask, 2)
         with torch.no_grad():
             o_scale = torch.exp(-2 * logs_p)
@@ -1147,216 +1149,8 @@ class Vits(BaseTTS):
             "syn_spk_emb": syn_spk_emb,
             "slice_ids": slice_ids,
         }
-        
+
         return outputs
-
-    @staticmethod
-    def _set_x_lengths(x, aux_input):
-        if "x_lengths" in aux_input and aux_input["x_lengths"] is not None:
-            return aux_input["x_lengths"]
-        return torch.tensor(x.shape[1:2]).to(x.device)
-    
-    # JMa: set minimum duration if predicted duration is lower than threshold
-    # Workaround to avoid short durations that cause some chars/phonemes to be reduced
-    # @staticmethod
-    # def _set_min_inference_length(d, threshold):
-    #     d_mask = d < threshold
-    #     d[d_mask] = threshold
-    #     return d
-    
-    def _set_min_inference_length(self, x, durs, threshold):
-        punctlike = list(self.config.characters.punctuations) + [self.config.characters.blank]
-        # Get list of tokens from IDs
-        tokens = x.squeeze().tolist()
-        # Check current and next token
-        n = self.tokenizer.characters.id_to_char(tokens[0])
-        # for ix, (c, n) in enumerate(zip(tokens[:-1], tokens[1:])):
-        for ix, idx in enumerate(tokens[1:]):
-            # c = self.tokenizer.characters.id_to_char(id_c)
-            c = n
-            n = self.tokenizer.characters.id_to_char(idx)
-            if c in punctlike:
-                # Skip thresholding for punctuation
-                continue
-            # Add duration from next punctuation if possible
-            d = durs[:,:,ix] + durs[:,:,ix+1] if n in punctlike else durs[:,:,ix]
-            # Threshold duration if duration lower than threshold
-            if d < threshold:
-                durs[:,:,ix] = threshold
-        return durs
-
-    @torch.no_grad()
-    def inference(
-        self,
-        x,
-        aux_input={"x_lengths": None,
-                   "d_vectors": None,
-                   "speaker_ids": None,
-                   "language_ids": None,
-                   "durations": None,
-                   "min_input_length": 0    # JMa: set minimum length if predicted length is lower than `min_input_length`
-                  },
-    ):  # pylint: disable=dangerous-default-value
-        """
-        Note:
-            To run in batch mode, provide `x_lengths` else model assumes that the batch size is 1.
-
-        Shapes:
-            - x: :math:`[B, T_seq]`
-            - x_lengths: :math:`[B]`
-            - d_vectors: :math:`[B, C]`
-            - speaker_ids: :math:`[B]`
-            - durations: :math: `[B, T_seq]`
-            - length_scale: :math: `[B, T_seq]` or `[B]` 
-
-        Return Shapes:
-            - model_outputs: :math:`[B, 1, T_wav]`
-            - alignments: :math:`[B, T_seq, T_dec]`
-            - z: :math:`[B, C, T_dec]`
-            - z_p: :math:`[B, C, T_dec]`
-            - m_p: :math:`[B, C, T_dec]`
-            - logs_p: :math:`[B, C, T_dec]`
-        """
-        # JMa: Save input
-        x_input = x
-
-        sid, g, lid, durations = self._set_cond_input(aux_input)
-        x_lengths = self._set_x_lengths(x, aux_input)
-
-        # speaker embedding
-        if self.args.use_speaker_embedding and sid is not None:
-            g = self.emb_g(sid).unsqueeze(-1)
-
-        # language embedding
-        lang_emb = None
-        if self.args.use_language_embedding and lid is not None:
-            lang_emb = self.emb_l(lid).unsqueeze(-1)
-
-        x, m_p, logs_p, x_mask = self.text_encoder(x, x_lengths, lang_emb=lang_emb)
-
-        if durations is None:
-            if self.args.use_sdp:
-                logw = self.duration_predictor(
-                    x,
-                    x_mask,
-                    g=g if self.args.condition_dp_on_speaker else None,
-                    reverse=True,
-                    noise_scale=self.inference_noise_scale_dp,
-                    lang_emb=lang_emb,
-                )
-            else:
-                logw = self.duration_predictor(
-                    x, x_mask, g=g if self.args.condition_dp_on_speaker else None, lang_emb=lang_emb
-                )
-            # JMa: set minimum duration if required
-            w = self._set_min_inference_length(x_input, torch.exp(logw) * x_mask, aux_input["min_input_length"]) if aux_input.get("min_input_length", 0) else torch.exp(logw) * x_mask
-            
-            # JMa: length scale for the given sentence-like input
-            # ORIG: w = torch.exp(logw) * x_mask * self.length_scale
-            # If `length_scale` is in `aux_input`, it resets the default value given by `self.length_scale`,
-            # otherwise the default `self.length_scale` from `config.json` is used.
-            length_scale = aux_input.get("length_scale", self.length_scale)
-            # JMa: `length_scale` is used to scale duration relatively to the predicted values, it should be:
-            # - float (or int) => duration of the output speech will be linearly scaled
-            # - torch tensor `[B, T_seq]`` (`B`` is batch size, `T_seq`` is the length of the input symbols)
-            #   => each input symbol (phone or char) is scaled according to the corresponding value in the torch vector
-            assert torch.is_tensor(length_scale) or isinstance(length_scale, (float, int)), "Length scale `length_scale` must be a tensor or float/int"
-            if torch.is_tensor(length_scale):
-                assert length_scale.shape[-1] == w.shape[-1], "Length scale ({length_scale.shape[-1]}) must be of the same length as input tokens ({w.shape[-1]})"
-                length_scale = length_scale.to(device=w.device).unsqueeze(0)
-            w *= length_scale        
-        
-        else:
-            # To force absolute durations (in frames), "durations" has to be in `aux_input`.
-            # The durations should be a torch tensor [B, N] (`B`` is batch size, `T_seq`` is the length of the input symbols)
-            # => each input symbol (phone or char) will have the duration given by the corresponding value (number of frames) in the torch vector
-            assert torch.is_tensor(durations) and durations.shape[-1] == x.shape[-1], \
-                f"Durations ({durations.shape[-1]}) must be a tensor of the same length as input tokens ({x.shape[-1]})"
-            w = durations.to(device=x.device).unsqueeze(0)
-
-        w_ceil = torch.ceil(w)
-        y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-        y_mask = sequence_mask(y_lengths, None).to(x_mask.dtype).unsqueeze(1)  # [B, 1, T_dec]
-
-        attn_mask = x_mask * y_mask.transpose(1, 2)  # [B, 1, T_enc] * [B, T_dec, 1]
-        attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1).transpose(1, 2))
-
-        m_p = torch.matmul(attn.transpose(1, 2), m_p.transpose(1, 2)).transpose(1, 2)
-        logs_p = torch.matmul(attn.transpose(1, 2), logs_p.transpose(1, 2)).transpose(1, 2)
-
-        z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * self.inference_noise_scale
-        z = self.flow(z_p, y_mask, g=g, reverse=True)
-
-        # upsampling if needed
-        z, _, _, y_mask = self.upsampling_z(z, y_lengths=y_lengths, y_mask=y_mask)
-
-        o = self.waveform_decoder((z * y_mask)[:, :, : self.max_inference_len], g=g)
-
-        outputs = {
-            "model_outputs": o,
-            "alignments": attn.squeeze(1),
-            "durations": w_ceil,
-            "z": z,
-            "z_p": z_p,
-            "m_p": m_p,
-            "logs_p": logs_p,
-            "y_mask": y_mask,
-        }
-        return outputs
-
-    @torch.no_grad()
-    def inference_voice_conversion(
-        self, reference_wav, speaker_id=None, d_vector=None, reference_speaker_id=None, reference_d_vector=None
-    ):
-        """Inference for voice conversion
-
-        Args:
-            reference_wav (Tensor): Reference wavform. Tensor of shape [B, T]
-            speaker_id (Tensor): speaker_id of the target speaker. Tensor of shape [B]
-            d_vector (Tensor): d_vector embedding of target speaker. Tensor of shape `[B, C]`
-            reference_speaker_id (Tensor): speaker_id of the reference_wav speaker. Tensor of shape [B]
-            reference_d_vector (Tensor): d_vector embedding of the reference_wav speaker. Tensor of shape `[B, C]`
-        """
-        # compute spectrograms
-        y = wav_to_spec(
-            reference_wav,
-            self.config.audio.fft_size,
-            self.config.audio.hop_length,
-            self.config.audio.win_length
-        )
-        y_lengths = torch.tensor([y.size(-1)]).to(y.device)
-        speaker_cond_src = reference_speaker_id if reference_speaker_id is not None else reference_d_vector
-        speaker_cond_tgt = speaker_id if speaker_id is not None else d_vector
-        wav, _, _ = self.voice_conversion(y, y_lengths, speaker_cond_src, speaker_cond_tgt)
-        return wav
-
-    def voice_conversion(self, y, y_lengths, speaker_cond_src, speaker_cond_tgt):
-        """Forward pass for voice conversion
-
-        TODO: create an end-point for voice conversion
-
-        Args:
-            y (Tensor): Reference spectrograms. Tensor of shape [B, T, C]
-            y_lengths (Tensor): Length of each reference spectrogram. Tensor of shape [B]
-            speaker_cond_src (Tensor): Reference speaker ID. Tensor of shape [B,]
-            speaker_cond_tgt (Tensor): Target speaker ID. Tensor of shape [B,]
-        """
-        assert self.num_speakers > 0, "num_speakers have to be larger than 0."
-        # speaker embedding
-        if self.args.use_speaker_embedding and not self.args.use_d_vector_file:
-            g_src = self.emb_g(torch.from_numpy((np.array(speaker_cond_src))).unsqueeze(0)).unsqueeze(-1)
-            g_tgt = self.emb_g(torch.from_numpy((np.array(speaker_cond_tgt))).unsqueeze(0)).unsqueeze(-1)
-        elif not self.args.use_speaker_embedding and self.args.use_d_vector_file:
-            g_src = F.normalize(speaker_cond_src).unsqueeze(-1)
-            g_tgt = F.normalize(speaker_cond_tgt).unsqueeze(-1)
-        else:
-            raise RuntimeError(" [!] Voice conversion is only supported on multi-speaker models.")
-
-        z, _, _, y_mask = self.posterior_encoder(y, y_lengths, g=g_src)
-        z_p = self.flow(z, y_mask, g=g_src)
-        z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
-        o_hat = self.waveform_decoder(z_hat * y_mask, g=g_tgt)
-        return o_hat, y_mask, (z, z_p, z_hat)
 
     def train_step(self, batch: dict, criterion: nn.Module, optimizer_idx: int) -> Tuple[Dict, Dict]:
         """Perform a single training step. Run the model forward pass and compute losses.
@@ -1467,6 +1261,214 @@ class Vits(BaseTTS):
             return self.model_outputs_cache, loss_dict
 
         raise ValueError(" [!] Unexpected `optimizer_idx`.")
+
+    @staticmethod
+    def _set_x_lengths(x, aux_input):
+        if "x_lengths" in aux_input and aux_input["x_lengths"] is not None:
+            return aux_input["x_lengths"]
+        return torch.tensor(x.shape[1:2]).to(x.device)
+
+    # JMa: set minimum duration if predicted duration is lower than threshold
+    # Workaround to avoid short durations that cause some chars/phonemes to be reduced
+    # @staticmethod
+    # def _set_min_inference_length(d, threshold):
+    #     d_mask = d < threshold
+    #     d[d_mask] = threshold
+    #     return d
+
+    def _set_min_inference_length(self, x, durs, threshold):
+        punctlike = list(self.config.characters.punctuations) + [self.config.characters.blank]
+        # Get list of tokens from IDs
+        tokens = x.squeeze().tolist()
+        # Check current and next token
+        n = self.tokenizer.characters.id_to_char(tokens[0])
+        # for ix, (c, n) in enumerate(zip(tokens[:-1], tokens[1:])):
+        for ix, idx in enumerate(tokens[1:]):
+            # c = self.tokenizer.characters.id_to_char(id_c)
+            c = n
+            n = self.tokenizer.characters.id_to_char(idx)
+            if c in punctlike:
+                # Skip thresholding for punctuation
+                continue
+            # Add duration from next punctuation if possible
+            d = durs[:,:,ix] + durs[:,:,ix+1] if n in punctlike else durs[:,:,ix]
+            # Threshold duration if duration lower than threshold
+            if d < threshold:
+                durs[:,:,ix] = threshold
+        return durs
+
+    @torch.no_grad()
+    def inference(
+        self,
+        x,
+        aux_input={"x_lengths": None,
+                   "d_vectors": None,
+                   "speaker_ids": None,
+                   "language_ids": None,
+                   "durations": None,
+                   "min_input_length": 0    # JMa: set minimum length if predicted length is lower than `min_input_length`
+                  },
+    ):  # pylint: disable=dangerous-default-value
+        """
+        Note:
+            To run in batch mode, provide `x_lengths` else model assumes that the batch size is 1.
+
+        Shapes:
+            - x: :math:`[B, T_seq]`
+            - x_lengths: :math:`[B]`
+            - d_vectors: :math:`[B, C]`
+            - speaker_ids: :math:`[B]`
+            - durations: :math: `[B, T_seq]`
+            - length_scale: :math: `[B, T_seq]` or `[B]`
+
+        Return Shapes:
+            - model_outputs: :math:`[B, 1, T_wav]`
+            - alignments: :math:`[B, T_seq, T_dec]`
+            - z: :math:`[B, C, T_dec]`
+            - z_p: :math:`[B, C, T_dec]`
+            - m_p: :math:`[B, C, T_dec]`
+            - logs_p: :math:`[B, C, T_dec]`
+        """
+        # JMa: Save input
+        x_input = x
+
+        sid, g, lid, durations = self._set_cond_input(aux_input)
+        x_lengths = self._set_x_lengths(x, aux_input)
+
+        # speaker embedding
+        if self.args.use_speaker_embedding and sid is not None:
+            g = self.emb_g(sid).unsqueeze(-1)
+
+        # language embedding
+        lang_emb = None
+        if self.args.use_language_embedding and lid is not None:
+            lang_emb = self.emb_l(lid).unsqueeze(-1)
+
+        x, m_p, logs_p, x_mask = self.text_encoder(x, x_lengths, lang_emb=lang_emb)
+
+        if durations is None:
+            if self.args.use_sdp:
+                logw = self.duration_predictor(
+                    x,
+                    x_mask,
+                    g=g if self.args.condition_dp_on_speaker else None,
+                    reverse=True,
+                    noise_scale=self.inference_noise_scale_dp,
+                    lang_emb=lang_emb,
+                )
+            else:
+                logw = self.duration_predictor(
+                    x, x_mask, g=g if self.args.condition_dp_on_speaker else None, lang_emb=lang_emb
+                )
+            # JMa: set minimum duration if required
+            w = self._set_min_inference_length(x_input, torch.exp(logw) * x_mask, aux_input["min_input_length"]) if aux_input.get("min_input_length", 0) else torch.exp(logw) * x_mask
+
+            # JMa: length scale for the given sentence-like input
+            # ORIG: w = torch.exp(logw) * x_mask * self.length_scale
+            # If `length_scale` is in `aux_input`, it resets the default value given by `self.length_scale`,
+            # otherwise the default `self.length_scale` from `config.json` is used.
+            length_scale = aux_input.get("length_scale", self.length_scale)
+            # JMa: `length_scale` is used to scale duration relatively to the predicted values, it should be:
+            # - float (or int) => duration of the output speech will be linearly scaled
+            # - torch tensor `[B, T_seq]`` (`B`` is batch size, `T_seq`` is the length of the input symbols)
+            #   => each input symbol (phone or char) is scaled according to the corresponding value in the torch vector
+            assert torch.is_tensor(length_scale) or isinstance(length_scale, (float, int)), "Length scale `length_scale` must be a tensor or float/int"
+            if torch.is_tensor(length_scale):
+                assert length_scale.shape[-1] == w.shape[-1], "Length scale ({length_scale.shape[-1]}) must be of the same length as input tokens ({w.shape[-1]})"
+                length_scale = length_scale.to(device=w.device).unsqueeze(0)
+            w *= length_scale
+
+        else:
+            # To force absolute durations (in frames), "durations" has to be in `aux_input`.
+            # The durations should be a torch tensor [B, N] (`B`` is batch size, `T_seq`` is the length of the input symbols)
+            # => each input symbol (phone or char) will have the duration given by the corresponding value (number of frames) in the torch vector
+            assert torch.is_tensor(durations) and durations.shape[-1] == x.shape[-1], \
+                f"Durations ({durations.shape[-1]}) must be a tensor of the same length as input tokens ({x.shape[-1]})"
+            w = durations.to(device=x.device).unsqueeze(0)
+
+        w_ceil = torch.ceil(w)
+        y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
+        y_mask = sequence_mask(y_lengths, None).to(x_mask.dtype).unsqueeze(1)  # [B, 1, T_dec]
+
+        attn_mask = x_mask * y_mask.transpose(1, 2)  # [B, 1, T_enc] * [B, T_dec, 1]
+        attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1).transpose(1, 2))
+
+        m_p = torch.matmul(attn.transpose(1, 2), m_p.transpose(1, 2)).transpose(1, 2)
+        logs_p = torch.matmul(attn.transpose(1, 2), logs_p.transpose(1, 2)).transpose(1, 2)
+
+        z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * self.inference_noise_scale
+        z = self.flow(z_p, y_mask, g=g, reverse=True)
+
+        # upsampling if needed
+        z, _, _, y_mask = self.upsampling_z(z, y_lengths=y_lengths, y_mask=y_mask)
+
+        o = self.waveform_decoder((z * y_mask)[:, :, : self.max_inference_len], g=g)
+
+        outputs = {
+            "model_outputs": o,
+            "alignments": attn.squeeze(1),
+            "durations": w_ceil,
+            "z": z,
+            "z_p": z_p,
+            "m_p": m_p,
+            "logs_p": logs_p,
+            "y_mask": y_mask,
+        }
+        return outputs
+
+    @torch.no_grad()
+    def inference_voice_conversion(
+        self, reference_wav, speaker_id=None, d_vector=None, reference_speaker_id=None, reference_d_vector=None
+    ):
+        """Inference for voice conversion
+
+        Args:
+            reference_wav (Tensor): Reference wavform. Tensor of shape [B, T]
+            speaker_id (Tensor): speaker_id of the target speaker. Tensor of shape [B]
+            d_vector (Tensor): d_vector embedding of target speaker. Tensor of shape `[B, C]`
+            reference_speaker_id (Tensor): speaker_id of the reference_wav speaker. Tensor of shape [B]
+            reference_d_vector (Tensor): d_vector embedding of the reference_wav speaker. Tensor of shape `[B, C]`
+        """
+        # compute spectrograms
+        y = wav_to_spec(
+            reference_wav,
+            self.config.audio.fft_size,
+            self.config.audio.hop_length,
+            self.config.audio.win_length
+        )
+        y_lengths = torch.tensor([y.size(-1)]).to(y.device)
+        speaker_cond_src = reference_speaker_id if reference_speaker_id is not None else reference_d_vector
+        speaker_cond_tgt = speaker_id if speaker_id is not None else d_vector
+        wav, _, _ = self.voice_conversion(y, y_lengths, speaker_cond_src, speaker_cond_tgt)
+        return wav
+
+    def voice_conversion(self, y, y_lengths, speaker_cond_src, speaker_cond_tgt):
+        """Forward pass for voice conversion
+
+        TODO: create an end-point for voice conversion
+
+        Args:
+            y (Tensor): Reference spectrograms. Tensor of shape [B, T, C]
+            y_lengths (Tensor): Length of each reference spectrogram. Tensor of shape [B]
+            speaker_cond_src (Tensor): Reference speaker ID. Tensor of shape [B,]
+            speaker_cond_tgt (Tensor): Target speaker ID. Tensor of shape [B,]
+        """
+        assert self.num_speakers > 0, "num_speakers have to be larger than 0."
+        # speaker embedding
+        if self.args.use_speaker_embedding and not self.args.use_d_vector_file:
+            g_src = self.emb_g(torch.from_numpy((np.array(speaker_cond_src))).unsqueeze(0)).unsqueeze(-1)
+            g_tgt = self.emb_g(torch.from_numpy((np.array(speaker_cond_tgt))).unsqueeze(0)).unsqueeze(-1)
+        elif not self.args.use_speaker_embedding and self.args.use_d_vector_file:
+            g_src = F.normalize(speaker_cond_src).unsqueeze(-1)
+            g_tgt = F.normalize(speaker_cond_tgt).unsqueeze(-1)
+        else:
+            raise RuntimeError(" [!] Voice conversion is only supported on multi-speaker models.")
+
+        z, _, _, y_mask = self.posterior_encoder(y, y_lengths, g=g_src)
+        z_p = self.flow(z, y_mask, g=g_src)
+        z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
+        o_hat = self.waveform_decoder(z_hat * y_mask, g=g_tgt)
+        return o_hat, y_mask, (z, z_p, z_hat)
 
     def _log(self, ap, batch, outputs, name_prefix="train"):  # pylint: disable=unused-argument,no-self-use
         y_hat = outputs[1]["model_outputs"]
@@ -1830,16 +1832,6 @@ class Vits(BaseTTS):
         scheduler_D = get_scheduler(self.config.lr_scheduler_disc, self.config.lr_scheduler_disc_params, optimizer[0])
         scheduler_G = get_scheduler(self.config.lr_scheduler_gen, self.config.lr_scheduler_gen_params, optimizer[1])
         return [scheduler_D, scheduler_G]
-
-    def get_criterion(self):
-        """Get criterions for each optimizer. The index in the output list matches the optimizer idx used in
-        `train_step()`"""
-        from TTS.tts.layers.losses import (  # pylint: disable=import-outside-toplevel
-            VitsDiscriminatorLoss,
-            VitsGeneratorLoss,
-        )
-
-        return [VitsDiscriminatorLoss(self.config), VitsGeneratorLoss(self.config)]
 
     def load_checkpoint(
         self, config, checkpoint_path, eval=False, strict=True, cache=False
