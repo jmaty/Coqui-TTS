@@ -1097,8 +1097,6 @@ class Vits(BaseTTS):
         if dur is None:
             dur = attn.sum(3)
 
-        loss_duration = self.get_duration_loss(dur, x, x_mask, g, lang_emb)
-
         # expand prior
         m_p = torch.einsum("klmn, kjm -> kjn", [attn, m_p])
         logs_p = torch.einsum("klmn, kjm -> kjn", [attn, logs_p])
@@ -1137,130 +1135,22 @@ class Vits(BaseTTS):
         outputs = {
             "model_outputs": o,
             "alignments": attn.squeeze(1),
-            "loss_duration": loss_duration,
             "m_p": m_p,
             "logs_p": logs_p,
-            "z": z,
             "z_p": z_p,
-            "m_q": m_q,
             "logs_q": logs_q,
             "waveform_seg": wav_seg,
-            "gt_spk_emb": gt_spk_emb,
-            "syn_spk_emb": syn_spk_emb,
             "slice_ids": slice_ids,
+            "token_emb": x,
+            "token_mask": x_mask,
         }
 
         return outputs
 
     def train_step(self, batch: dict, criterion: nn.Module, optimizer_idx: int) -> Tuple[Dict, Dict]:
         """Perform a single training step. Run the model forward pass and compute losses.
-
-        Args:
-            batch (Dict): Input tensors.
-            criterion (nn.Module): Loss layer designed for the model.
-            optimizer_idx (int): Index of optimizer to use. 0 for the generator and 1 for the discriminator networks.
-
-        Returns:
-            Tuple[Dict, Dict]: Model ouputs and computed losses.
+           This implementation is empty and must be overridden!
         """
-
-        spec_lens = batch["spec_lens"]
-
-        if optimizer_idx == 0:
-            tokens = batch["tokens"]
-            token_lenghts = batch["token_lens"]
-            spec = batch["spec"]
-
-            d_vectors = batch["d_vectors"]
-            speaker_ids = batch["speaker_ids"]
-            language_ids = batch["language_ids"]
-            waveform = batch["waveform"]
-
-            aux_input = {
-                "d_vectors": d_vectors,
-                "speaker_ids": speaker_ids,
-                "language_ids": language_ids,
-                "attn": batch.get("attn", None),
-                "durations": batch.get("duration", None)
-            }
-
-            # generator pass
-            outputs = self.forward(
-                tokens,
-                token_lenghts,
-                spec,
-                spec_lens,
-                waveform,
-                aux_input=aux_input,
-            )
-
-            # cache tensors for the generator pass
-            self.model_outputs_cache = outputs  # pylint: disable=attribute-defined-outside-init
-
-            # compute scores and features
-            scores_disc_fake, _, scores_disc_real, _ = self.disc(
-                outputs["model_outputs"].detach(), outputs["waveform_seg"]
-            )
-
-            # compute loss
-            with autocast(enabled=False):  # use float32 for the criterion
-                loss_dict = criterion[optimizer_idx](
-                    scores_disc_real,
-                    scores_disc_fake,
-                )
-            return outputs, loss_dict
-
-        if optimizer_idx == 1:
-            mel = batch["mel"]
-
-            # compute melspec segment
-            with autocast(enabled=False):
-                if self.args.encoder_sample_rate:
-                    spec_segment_size = self.spec_segment_size * int(self.interpolate_factor)
-                else:
-                    spec_segment_size = self.spec_segment_size
-
-                mel_slice = segment(
-                    mel.float(), self.model_outputs_cache["slice_ids"], spec_segment_size, pad_short=True
-                )
-                mel_slice_hat = wav_to_mel(
-                    y=self.model_outputs_cache["model_outputs"].float(),
-                    n_fft=self.config.audio.fft_size,
-                    sample_rate=self.config.audio.sample_rate,
-                    num_mels=self.config.audio.num_mels,
-                    hop_length=self.config.audio.hop_length,
-                    win_length=self.config.audio.win_length,
-                    fmin=self.config.audio.mel_fmin,
-                    fmax=self.config.audio.mel_fmax
-                )
-
-            # compute discriminator scores and features
-            scores_disc_fake, feats_disc_fake, _, feats_disc_real = self.disc(
-                self.model_outputs_cache["model_outputs"], self.model_outputs_cache["waveform_seg"]
-            )
-
-            # compute losses
-            with autocast(enabled=False):  # use float32 for the criterion
-                loss_dict = criterion[optimizer_idx](
-                    mel_slice_hat=mel_slice.float(),
-                    mel_slice=mel_slice_hat.float(),
-                    z_p=self.model_outputs_cache["z_p"].float(),
-                    logs_q=self.model_outputs_cache["logs_q"].float(),
-                    m_p=self.model_outputs_cache["m_p"].float(),
-                    logs_p=self.model_outputs_cache["logs_p"].float(),
-                    z_len=spec_lens,
-                    scores_disc_fake=scores_disc_fake,
-                    feats_disc_fake=feats_disc_fake,
-                    feats_disc_real=feats_disc_real,
-                    loss_duration=self.model_outputs_cache["loss_duration"],
-                    use_speaker_encoder_as_loss=self.args.use_speaker_encoder_as_loss,
-                    gt_spk_emb=self.model_outputs_cache["gt_spk_emb"],
-                    syn_spk_emb=self.model_outputs_cache["syn_spk_emb"],
-                )
-
-            return self.model_outputs_cache, loss_dict
-
-        raise ValueError(" [!] Unexpected `optimizer_idx`.")
 
     @staticmethod
     def _set_x_lengths(x, aux_input):

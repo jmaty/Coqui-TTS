@@ -41,7 +41,7 @@ class VitsHDS(Vits):
         loss = torch.mean(outputs["model_outputs"])
 
         # Get the minimum of the required data
-        return {'waveform' : batch["waveform"],
+        return {'waveform_seg' : batch["waveform"],
                 'model_outputs' : batch["waveform"],
                 'alignments' : outputs["alignments"],
                },\
