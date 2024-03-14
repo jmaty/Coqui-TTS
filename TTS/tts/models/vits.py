@@ -1143,6 +1143,7 @@ class Vits(BaseTTS):
             "slice_ids": slice_ids,
             "token_emb": x,
             "token_mask": x_mask,
+            "dur": dur,
         }
 
         return outputs
