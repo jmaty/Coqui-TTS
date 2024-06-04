@@ -38,7 +38,9 @@ class KernelPredictor(torch.nn.Module):
 
         padding = (kpnet_conv_size - 1) // 2
         self.input_conv = torch.nn.Sequential(
-            torch.nn.Conv1d(cond_channels, kpnet_hidden_channels, 5, padding=(5 - 1) // 2, bias=True),
+            # JMa
+            torch.nn.Conv1d(cond_channels, 80, kernel_size=1),
+            torch.nn.Conv1d(80, kpnet_hidden_channels, 5, padding=(5 - 1) // 2, bias=True),
             getattr(torch.nn, kpnet_nonlinear_activation)(**kpnet_nonlinear_activation_params),
         )
 
